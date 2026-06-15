@@ -326,13 +326,17 @@ export default function App() {
             </button>
             <button
               onClick={() => setActiveTab('ai-copilot')}
-              className={`flex items-center gap-1.5 px-4 py-2 text-xs uppercase tracking-wider rounded-lg bounce-spring bounce-tab ${
+              className={`flex items-center gap-1.5 px-4 py-2 text-xs uppercase tracking-wider rounded-lg bounce-spring bounce-tab transition-all duration-300 relative ${
                 activeTab === 'ai-copilot'
-                  ? 'bg-zinc-100 text-zinc-950 font-black shadow-lg scale-102'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50'
+                  ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-black shadow-[0_0_20px_rgba(139,92,246,0.25)] scale-[1.02]'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60 hover:ring-1 hover:ring-violet-500/20'
               }`}
             >
-              <Sparkles className="w-3.5 h-3.5 text-violet-400" /> AI Agent
+              <Sparkles className={`w-3.5 h-3.5 ${activeTab === 'ai-copilot' ? 'text-white animate-pulse' : 'text-violet-400'}`} />
+              <span className="font-semibold">AI Sovereign Engine</span>
+              <span className="text-[8px] font-mono uppercase bg-violet-950 text-violet-300 border border-violet-900 px-1.5 py-0.5 rounded-sm tracking-wide font-black">
+                Tier III
+              </span>
             </button>
           </nav>
 
@@ -441,21 +445,64 @@ export default function App() {
             {/* Panel 5: AI Copilot Room with Tier Guard */}
             {activeTab === 'ai-copilot' && (
               currentTier < 3 ? (
-                <div className="py-16 text-center bg-zinc-950 border border-zinc-900 rounded-2xl max-w-xl mx-auto space-y-4 p-8 font-mono">
-                  <Sparkles className="w-12 h-12 text-violet-400 mx-auto animate-pulse" />
-                  <h3 className="text-xs font-black uppercase tracking-widest text-white font-bold">Stage III Access Restricted</h3>
-                  <p className="text-[11px] text-zinc-500 leading-relaxed">
-                    Connecting contextual ledger graphs, email drafts compiler, and live chat dialogue prompts require the **AI Sovereign** plan.
-                  </p>
-                  <button
-                    onClick={() => {
-                      setCurrentTier(3);
-                      fetchAllData();
-                    }}
-                    className="px-6 py-3 text-[10px] uppercase tracking-widest rounded-full bg-indigo-600 hover:bg-indigo-500 text-white font-mono font-bold bounce-spring bounce-btn cursor-pointer"
-                  >
-                    Upgrade to Tier III ($299)
-                  </button>
+                <div className="bg-zinc-950 border border-zinc-900 rounded-2xl max-w-3xl mx-auto p-8 md:p-12 space-y-10 relative overflow-hidden" id="ai-marketing-showcase">
+                  <div className="absolute top-0 right-0 w-80 h-80 bg-violet-600/5 rounded-full blur-[100px] pointer-events-none" />
+                  <div className="absolute -top-3 left-6 px-2.5 py-0.5 bg-zinc-900 border border-zinc-800 text-[8px] font-mono tracking-widest text-violet-400 rounded-sm">
+                    COGNITIVE AI LAYER ACTIVE
+                  </div>
+
+                  <div className="text-center space-y-4 max-w-xl mx-auto">
+                    <div className="inline-flex p-3 bg-violet-950/20 border border-violet-900/30 rounded-xl text-violet-400 animate-pulse">
+                      <Sparkles className="w-8 h-8" />
+                    </div>
+                    <h2 className="text-xl md:text-2xl font-light tracking-tight text-white uppercase font-sans">
+                      Unleash the FLOWT Sovereign AI Engine
+                    </h2>
+                    <p className="text-xs text-zinc-400 font-light leading-relaxed">
+                      Connect your active ledger directly to our secure, server-side Gemini 3.5 Large Language Model (LLM) to completely automate financial inquiries, write reminders, and analyze credit risk parameters.
+                    </p>
+                  </div>
+
+                  {/* Feature Matrix Bento */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-left">
+                    <div className="p-5 border border-zinc-900/80 bg-zinc-950/60 rounded-xl space-y-2 hover:border-violet-500/20 transition-all duration-300">
+                      <h4 className="text-[10px] uppercase font-mono tracking-wider text-violet-400 font-bold">Ledger Synthesis</h4>
+                      <p className="text-xs text-zinc-400 font-light leading-relaxed">
+                        Exposes live invoice variables, client profiles, and historical banking settlements as instant context vectors.
+                      </p>
+                    </div>
+
+                    <div className="p-5 border border-zinc-900/80 bg-zinc-950/60 rounded-xl space-y-2 hover:border-violet-500/20 transition-all duration-300">
+                      <h4 className="text-[10px] uppercase font-mono tracking-wider text-violet-400 font-bold">Smart Outreach Drafts</h4>
+                      <p className="text-xs text-zinc-400 font-light leading-relaxed">
+                        Generate professional outstanding overdue notices, specific Grace Period options, and client email drafts.
+                      </p>
+                    </div>
+
+                    <div className="p-5 border border-zinc-900/80 bg-zinc-950/60 rounded-xl space-y-2 hover:border-violet-500/20 transition-all duration-300">
+                      <h4 className="text-[10px] uppercase font-mono tracking-wider text-violet-400 font-bold">Liquidity Diagnostics</h4>
+                      <p className="text-xs text-zinc-400 font-light leading-relaxed">
+                        Identify cashflow liabilities, classify overdue risk factors, and conduct multi-currency balance forecasts semantically.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Upgrade Action bar */}
+                  <div className="pt-6 border-t border-zinc-900 flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div className="text-center sm:text-left space-y-1">
+                      <div className="text-xs text-white font-mono uppercase tracking-wider font-semibold">Tier III Complete access</div>
+                      <p className="text-[10px] text-zinc-500">Unlocks immediate conversational analysis and direct ledger syncing.</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setCurrentTier(3);
+                        fetchAllData();
+                      }}
+                      className="px-6 py-3 text-xs uppercase tracking-widest rounded-sm bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-mono font-bold hover:scale-[1.03] hover:ring-1 hover:ring-violet-400 active:scale-[0.98] transition-all duration-300 cursor-pointer"
+                    >
+                      Authorize Tier III ($299/mo)
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <SmeAiCopilot invoices={invoices} bankTransactions={bankTransactions} />

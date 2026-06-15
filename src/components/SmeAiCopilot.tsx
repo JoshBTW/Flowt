@@ -193,7 +193,10 @@ export default function SmeAiCopilot({ invoices, bankTransactions }: SmeAiCopilo
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-violet-500 animate-pulse" />
             <div>
-              <h3 className="text-xs font-black uppercase tracking-widest text-white">Gemini Financial Co-Pilot</h3>
+              <h3 className="text-xs font-black uppercase tracking-widest text-white flex items-center gap-2">
+                Gemini Financial Co-Pilot
+                <span className="text-[7.5px] bg-violet-950 text-violet-300 border border-violet-850 px-1.5 py-0.5 rounded-sm tracking-widest font-black animate-pulse">AUTONOMOUS</span>
+              </h3>
               <p className="text-[9px] text-zinc-500 font-mono">Continuous feedback layer</p>
             </div>
           </div>
