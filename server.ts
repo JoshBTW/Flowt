@@ -629,7 +629,7 @@ function getGoogleAI() {
 
 // AI SME Copilot agent chat endpoint
 app.post('/api/ai-chat', async (req, res) => {
-  const { messages } = req.body;
+  const { messages, customSystemInstruction, temperature, maxOutputTokens, model } = req.body;
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: 'Messages array is required' });
   }
@@ -643,7 +643,9 @@ app.post('/api/ai-chat', async (req, res) => {
     `- Bank Wire: Date ${tx.date}, Ref: ${tx.reference}, Desc: "${tx.description}", Amount: ${tx.amount} ${tx.currency}, Status: ${tx.status}`
   )).join('\n');
 
-  const systemInstructions = `You are "FLOWT AI Agent", an expert financial AI adviser and co-pilot for SMEs. 
+  const systemInstructions = customSystemInstruction 
+    ? `${customSystemInstruction}\n\n[Realtime Workspace Context]\nACTIVE SME INVOICES LEDGER:\n${invoicesContext}\n\nACTIVE BANK WIRE FEEDS:\n${transactionsContext}`
+    : `You are "FLOWT AI Agent", an expert financial AI adviser and co-pilot for SMEs. 
 You have real-time, read-only access to the active SME ledger and transaction feeds.
 
 ACTIVE SME INVOICES LEDGER:
@@ -668,10 +670,12 @@ INSTRUCTIONS:
       }));
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3.5-flash',
+        model: model || 'gemini-3.5-flash',
         contents: formattedContents,
         config: {
-          systemInstruction: systemInstructions
+          systemInstruction: systemInstructions,
+          temperature: temperature !== undefined ? Number(temperature) : undefined,
+          maxOutputTokens: maxOutputTokens !== undefined ? Number(maxOutputTokens) : undefined,
         }
       });
 
@@ -680,7 +684,7 @@ INSTRUCTIONS:
     } catch (err: any) {
       console.error('Gemini API Error:', err);
       return res.json({ 
-        response: `⚠️ **[Active Agent Session Error]** ${err.message || 'Verification issue'}.\n\nI was unable to query Gemini. However, as your automated SME Agent, I can analyze that your account holds ${invoices.filter(i => i.status === 'Overdue').length} overdue invoices requiring urgent settlement. Please check the API keys under Settings.` 
+         response: `⚠️ **[Active Agent Session Error]** ${err.message || 'Verification issue'}.\n\nI was unable to query Gemini. However, as your automated SME Agent, I can analyze that your account holds ${invoices.filter(i => i.status === 'Overdue').length} overdue invoices requiring urgent settlement. Please check the API keys under Settings.` 
       });
     }
   } else {
@@ -726,27 +730,27 @@ Billing Operations Dept.
       const paidLen = invoices.filter(i => i.status === 'Paid').length;
       const overdueLen = invoices.filter(i => i.status === 'Overdue').length;
       
-      reply = `📈 **FLOWT Cashflow Liquidity Index Summary**
+      reply = `📈 **FLOWT Accounts Summary**
 - **Draft Invoices**: \`${draftLen}\`
 - **Outstanding**: \`${outstandingLen}\`
 - **Paid**: \`${paidLen}\` (Fully Reconciled)
 - **Overdue Risk**: \`${overdueLen}\` (High Risk)
 
-**Sovereign Recommendation:**
-Execute a Cron Sweep on your outbound Reminder config to trigger final grace notifications and improve liquid reserves.`;
+**Recommendation:**
+Execute automated reminders in the settings to send friendly payment notifications to overdue clients.`;
     } else {
-      reply = `👋 **Welcome to FLOWT Stage III: AI Sovereign Co-Pilot**
-I am your dedicated enterprise accounting intelligence. Ask me anything about your invoices, transactions, drafting customer outreach, or reviewing cash flow balances! 
+      reply = `👋 **Welcome to the FLOWT AI Assistant**
+I am your dedicated enterprise accounting helper. Ask me any questions about your active invoices, unlinked bank transactions, customer outreach templates, or reports! 
 
-*Demo Prompt Examples to try:*
+*Examples of prompt queries:*
 - *"Analyze Acme Global's outstanding invoice"*
 - *"What is my current overdued cash risk?"*
-- *"Draft a professional payment notification email"*
+- *"Draft a professional payment reminder email"*
 
 *(Note: Connect your real \`GEMINI_API_KEY\` in Settings to enable absolute open-ended general intelligence!)*`;
     }
 
-    const apiTip = `\n\n*(💡 Running in simulated copilot mode. Set a real \`GEMINI_API_KEY\` space secret inside the Settings panel to toggle full live generative AI!)*`;
+    const apiTip = `\n\n*(💡 Running in simulated copilot mode with custom params (Model: ${model || 'gemini-3.5-flash'}, Temp: ${temperature ?? 0.7}). Set a real \`GEMINI_API_KEY\` space secret inside the Settings panel to toggle full live generative AI!)*`;
     return res.json({ response: reply + apiTip });
   }
 });

@@ -15,7 +15,7 @@ export default function LoginPage({ onBack, onLoginSuccess }: LoginPageProps) {
   const keyTiers = [
     { key: 'FLOWT-CORE-99', name: 'Tier I Base', tier: 1 as const },
     { key: 'FLOWT-RECON-149', name: 'Tier II Pro', tier: 2 as const },
-    { key: 'FLOWT-AI-299', name: 'Tier III Sovereign', tier: 3 as const },
+    { key: 'FLOWT-AI-299', name: 'Tier III AI Copilot', tier: 3 as const },
   ];
 
   const handleQuickFill = (key: string) => {
@@ -81,16 +81,16 @@ export default function LoginPage({ onBack, onLoginSuccess }: LoginPageProps) {
             <div className="inline-flex p-3 bg-zinc-900 border border-zinc-800 rounded-sm">
               <Key className="w-5 h-5 text-zinc-300 stroke-[1.5]" />
             </div>
-            <h1 className="text-xl font-light tracking-widest text-white uppercase">Sovereign Passkey</h1>
+            <h1 className="text-xl font-light tracking-widest text-white uppercase">License Authentication</h1>
             <p className="text-xs text-zinc-400 font-light max-w-xs mx-auto">
-              Please input your license key matrix to authorize your remote ledger interface session.
+              Please enter your license key to access your secure invoice and bank reconciliation workspace.
             </p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
               <label htmlFor="signature-passkey" className="block text-[10px] font-mono tracking-wider text-zinc-500 uppercase">
-                Enterprise Key Matrix
+                Product License Key
               </label>
               <input
                 id="signature-passkey"

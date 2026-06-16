@@ -2,13 +2,16 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   Sparkles, Send, Bot, User, Trash2, ArrowUpRight, ShieldCheck, Mail, 
   FileText, Check, Copy, Settings, Activity, Database, AlertTriangle, 
-  ChevronRight, RefreshCw, FileCheck, Code, HelpCircle
+  ChevronRight, RefreshCw, Code, HelpCircle, Sliders, Wrench,
+  Cpu, CheckCircle, Info, Flame, Eye, Terminal, Play, Lock, FileCheck
 } from 'lucide-react';
 import { Invoice, BankTransaction } from '../types.js';
 
 interface Message {
   role: 'user' | 'model';
   content: string;
+  tokensCount?: number;
+  timeMs?: number;
 }
 
 interface SmeAiCopilotProps {
@@ -17,46 +20,67 @@ interface SmeAiCopilotProps {
 }
 
 export default function SmeAiCopilot({ invoices, bankTransactions }: SmeAiCopilotProps) {
-  // Nested sub-workspace navigation
-  const [activeSubTab, setActiveSubTab] = useState<'chat' | 'drafts' | 'vectors' | 'diagnostics'>('chat');
+  // Navigation for inner view
+  const [activeSubTab, setActiveSubTab] = useState<'playground' | 'drafts' | 'get-code'>('playground');
   
-  // Chat console states
+  // Model Parameters & Tuning (Google AI Studio replicas)
+  const [selectedModel, setSelectedModel] = useState<string>('gemini-3.5-flash');
+  const [temperature, setTemperature] = useState<number>(0.7);
+  const [maxOutputTokens, setMaxOutputTokens] = useState<number>(2048);
+  const [topP, setTopP] = useState<number>(0.95);
+  const [topK, setTopK] = useState<number>(40);
+  
+  // Safety Controls
+  const [safetyHarassment, setSafetyHarassment] = useState<string>('BLOCK_MEDIUM_AND_ABOVE');
+  const [safetyHateSpeech, setSafetyHateSpeech] = useState<string>('BLOCK_MEDIUM_AND_ABOVE');
+  const [safetyDangerous, setSafetyDangerous] = useState<string>('BLOCK_MEDIUM_AND_ABOVE');
+  const [safetyExplicit, setSafetyExplicit] = useState<string>('BLOCK_MEDIUM_AND_ABOVE');
+
+  // Custom System Instruction
+  const [customSystemInstruction, setCustomSystemInstruction] = useState<string>(
+    `You are "FLOWT AI Agent", an expert financial AI adviser and co-pilot for SMEs. 
+You have real-time, read-only access to the active SME ledger and transaction feeds.
+
+Goal: Provide mathematically precise, professional financial feedback regarding outstanding balances, reconciliation matches, and general corporate cashflow queries.`
+  );
+  
+  const [editingInstructions, setEditingInstructions] = useState(false);
+  const [instructionDraft, setInstructionDraft] = useState(customSystemInstruction);
+
+  // Active Sandbox Dialogue States
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'model',
-      content: `👋 **Welcome to FLOWT Stage III: SME Corporate AI Co-Pilot**\n\nI am your sovereign context-aware accounting assistant. I have mapped your real-time ledger and banking feeds. Tell me what cashflow operations or drafts you need compiled today!`
+      content: `👋 **Welcome to the FLOWT AI Assistant Sandbox**\n\nI have successfully mapped your active invoices ledger and bank wire feeds as context. Adjust your system instructions on the left or configure parameters on the right to optimize helper output replies!`,
+      tokensCount: 78,
+      timeMs: 140
     }
   ]);
   const [userInput, setUserInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Dynamic drafts builder states
+  // Outreach configuration states
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string>('');
   const [outreachTone, setOutreachTone] = useState<'cordial' | 'assertive' | 'urgent'>('cordial');
   const [generatedDraft, setGeneratedDraft] = useState<string>('');
   const [draftLoading, setDraftLoading] = useState(false);
   const [copiedStatus, setCopiedStatus] = useState(false);
+  
+  // Collapsible sections
+  const [showLiveContext, setShowLiveContext] = useState(false);
+  const [copiedCodeStatus, setCopiedCodeStatus] = useState<string | null>(null);
 
-  // Auto scroll for chat
+  // Adjust defaults on load
   useEffect(() => {
-    if (activeSubTab === 'chat') {
-      scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages, chatLoading, activeSubTab]);
-
-  // Set default selected invoice for drafts
-  useEffect(() => {
-    const overdueInvoices = invoices.filter(inv => inv.status === 'Overdue' || inv.status === 'Outstanding');
-    if (overdueInvoices.length > 0 && !selectedInvoiceId) {
-      setSelectedInvoiceId(overdueInvoices[0].id);
-    } else if (invoices.length > 0 && !selectedInvoiceId) {
-      setSelectedInvoiceId(invoices[0].id);
+    if (invoices.length > 0 && !selectedInvoiceId) {
+      const target = invoices.find(inv => inv.status === 'Overdue') || invoices[0];
+      setSelectedInvoiceId(target.id);
     }
   }, [invoices, selectedInvoiceId]);
 
-  // Handle send message logic
-  const handleSendMessage = async (textToSend: string) => {
+  // Handle Send action
+  const handleRunPrompt = async (textToSend: string) => {
     if (!textToSend.trim() || chatLoading) return;
 
     const updatedMessages = [...messages, { role: 'user' as const, content: textToSend }];
@@ -64,16 +88,34 @@ export default function SmeAiCopilot({ invoices, bankTransactions }: SmeAiCopilo
     setUserInput('');
     setChatLoading(true);
 
+    const startTime = Date.now();
+
     try {
       const res = await fetch('/api/ai-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: updatedMessages })
+        body: JSON.stringify({
+          messages: updatedMessages,
+          customSystemInstruction,
+          temperature,
+          maxOutputTokens,
+          model: selectedModel
+        })
       });
+
+      const latency = Date.now() - startTime;
 
       if (res.ok) {
         const data = await res.json();
-        setMessages(prev => [...prev, { role: 'model', content: data.response }]);
+        setMessages(prev => [
+          ...prev, 
+          { 
+            role: 'model', 
+            content: data.response,
+            tokensCount: Math.floor(data.response.length / 4.1) + 40,
+            timeMs: latency
+          }
+        ]);
       } else {
         setMessages(prev => [
           ...prev, 
@@ -96,24 +138,40 @@ export default function SmeAiCopilot({ invoices, bankTransactions }: SmeAiCopilo
     }
   };
 
-  const clearChat = () => {
-    setMessages([
+  const handleApplyInstructions = () => {
+    setCustomSystemInstruction(instructionDraft);
+    setEditingInstructions(false);
+    // Add system notification message
+    setMessages(prev => [
+      ...prev,
       {
         role: 'model',
-        content: `🔄 **Copilot ledger reset.** Conversation history cleared successfully. Ask me anything regarding your active transactions!`
+        content: `🔧 **[System Alert]** System instructions have been adjusted in the current workspace. Subsequent runs will respect these constraints.`,
+        tokensCount: 12,
+        timeMs: 25
       }
     ]);
   };
 
-  // Automated Outreach generator logic
-  const handleGenerateDraft = () => {
+  const clearSandbox = () => {
+    setMessages([
+      {
+        role: 'model',
+        content: `🔄 **AI Studio Sandbox Resetted.** Previous session history cleared. Use the prompt field below to audit unlinked bank transactions or cashflow summaries.`,
+        tokensCount: 22,
+        timeMs: 50
+      }
+    ]);
+  };
+
+  // Draft Outreach generation logic
+  const handleGenerateOutreach = () => {
     const targetInvoice = invoices.find(inv => inv.id === selectedInvoiceId);
     if (!targetInvoice) return;
 
     setDraftLoading(true);
     setCopiedStatus(false);
 
-    // Mock quick server-side generation feel
     setTimeout(() => {
       let draftText = '';
       const formattedDate = new Date(targetInvoice.dueDate).toLocaleDateString('en-US', {
@@ -126,86 +184,73 @@ export default function SmeAiCopilot({ invoices, bankTransactions }: SmeAiCopilo
       if (outreachTone === 'cordial') {
         draftText = `Subject: Friendly Reminder: Outstanding Invoice ${targetInvoice.id} - ${targetInvoice.clientName}
 
-Dear Accounts Receivable Team,
+Dear Accounts team,
 
-I hope this message finds you well. 
+I hope you are doing well.
 
-This is a gentle reminder that invoice ${targetInvoice.id}, sent on ${new Date(targetInvoice.issueDate).toLocaleDateString()}, for ${currencySymbol}${targetInvoice.amount.toLocaleString()} was scheduled for payment on ${formattedDate}.
+This is a gentle update that invoice ${targetInvoice.id}, dispatched on ${new Date(targetInvoice.issueDate).toLocaleDateString()}, for ${currencySymbol}${targetInvoice.amount.toLocaleString()} has passed its target payment cycle on ${formattedDate}.
 
-We realize you have a busy operations line, and this may have simply slipped through. If you have already executed this remittance, please disregard this note.
-
-You can verify and securely execute this settlement immediately using our continuous gateway node below:
+We completely appreciate how fast-paced operations can be, and wanted to re-surface this in case it slipped past. You can clear this invoice securely using our card/ACH gateway link below:
 https://flowt.app/pay/${targetInvoice.id}
 
-If any adjustments are needed, do let us know!
+If you have already processed this bank wire, please feel free to disregard this note. Thank you!
 
-Warm regards,
-Accounts Desk
-FLOWT Automated Billing Portal`;
+Kind regards,
+Billing Operations Dept.
+[SME Account Desk]`;
       } else if (outreachTone === 'assertive') {
-        draftText = `Subject: Overdue Notice: Invoice ${targetInvoice.id} Settlement Pending
+        draftText = `Subject: ACTION REQUIRED: Overdue Invoices INV ${targetInvoice.id} - Customer Accounts
 
-To: Accounts Payable Manager, ${targetInvoice.clientName}
+To: Accounts Payable, ${targetInvoice.clientName}
 
-This is a formal update regarding outstanding Invoice ${targetInvoice.id} which matured on ${formattedDate}.
+This is an important update regarding outstanding Invoice ${targetInvoice.id} which had a payment limit of ${formattedDate}.
 
-As of today, we have not registered the matching wire reference corresponding to the outstanding balance of ${currencySymbol}${targetInvoice.amount.toLocaleString()}. 
+As of today's bank clearance ledger, we have not noticed a corresponding deposit matching the outstanding principal of ${currencySymbol}${targetInvoice.amount.toLocaleString()}. 
 
-Please review the attached invoice summary and initiate immediate payment instruction. You can secure automatic settlement using our Stripe instant ACH channel:
+Please finalize appropriate payment authorization details inline with your primary billing schedule. Secure automatic card settlements can be settled instantly here:
 https://flowt.app/pay/${targetInvoice.id}
 
-If we do not receive remittance confirmation within the standard three (3) business days, we will initiate automated client communication sweeps as scheduled on your profile.
+For wire reference updates, please send the swift confirmation file to accounts@flowt-sme.com.
 
 Sincerely,
-Credit Operations Team,
-FLOWT Sovereign Platform`;
+Credit Management Desk
+FLOWT Accounts Desk`;
       } else {
-        draftText = `Subject: URGENT CREDIT RISK DEMAND: Immediate Action Required - Invoice ${targetInvoice.id}
+        draftText = `Subject: URGENT CREDIT WARNING: Suspended Account Notice - Invoice ${targetInvoice.id}
 
-To: Operations Director / Chief Financial Officer, ${targetInvoice.clientName}
-CC: Executive Office
+To: Director of Finance / Executive Controller, ${targetInvoice.clientName}
 
-This is an URGENT notice that Invoice ${targetInvoice.id} is now severely overdue since ${formattedDate}.
+We are writing to issue an urgent notification that Invoice ${targetInvoice.id} remains unpaid since ${formattedDate}, despite past friendly updates.
 
-The total outstanding ledger balance of ${currencySymbol}${targetInvoice.amount.toLocaleString()} has been added to our pending litigation and active debt-reconciliation sweep stack.
+The outstanding ledger balance of ${currencySymbol}${targetInvoice.amount.toLocaleString()} is currently flagged for final risk allocation. If payment or a swift deposit slip is not received within twenty-four (24) hours, your account file will be moved to third-party agency collections.
 
-To prevent negative credit classification on our shared remittance database, you must make immediate payment within the next 24 hours. Execute payment instantly using ACH/Wire coordinates:
+Avoid negative credit classification reports by clearing this item immediately via our express automatic ACH link:
 https://flowt.app/pay/${targetInvoice.id}
 
-For transaction validation enquiries, contact our active service desk immediately at billing-ops@flowt.app.
+We expect your priority attention to resolve this item.
 
 Regards,
-Corporate Collections Division,
-FLOWT Enterprise System`;
+Collections & Risk Division
+Corporate Billing Desk`;
       }
 
       setGeneratedDraft(draftText);
       setDraftLoading(false);
-    }, 850);
+    }, 750);
   };
 
-  const handleCopyDraft = () => {
-    navigator.clipboard.writeText(generatedDraft);
-    setCopiedStatus(true);
-    setTimeout(() => setCopiedStatus(false), 2000);
-  };
-
-  const samplePrompts = [
-    {
-      label: "Analyze Cashflow Liquidity Risk",
-      prompt: "Show me a detailed status and cashflow liquidity report including risk rating on overdue invoices."
-    },
-    {
-      label: "Diagnose Acme Global Invoice",
-      prompt: "Show me acme global outstanding invoice details and identify matching wire transfers to settle INV-2026-001."
-    },
-    {
-      label: "Draft München Overdue Email",
-      prompt: "Draft a cordova professional overdue notice email for München Creative Group based on invoice parameters."
+  const handleCopyText = (text: string, identifier: string) => {
+    navigator.clipboard.writeText(text);
+    if (identifier === 'draft') {
+      setCopiedStatus(true);
+      setTimeout(() => setCopiedStatus(false), 2000);
+    } else {
+      setCopiedCodeStatus(identifier);
+      setTimeout(() => setCopiedCodeStatus(null), 2000);
     }
-  ];
+  };
 
-  // Format response helper
+  // Format model response helper to handle headers and markdown details
   const formatMsgText = (text: string) => {
     return text.split('\n').map((line, idx) => {
       if (line.startsWith('```')) return null;
@@ -213,378 +258,401 @@ FLOWT Enterprise System`;
       const isBullet = line.startsWith('- ') || line.startsWith('* ');
       const cleanLine = isBullet ? line.slice(2) : line;
 
+      // Handle bold bold replacement
+      const processedContent = cleanLine.split('**').map((part, pIdx) => {
+        if (pIdx % 2 === 1) {
+          return <strong key={pIdx} className="font-bold text-white px-0.5">{part}</strong>;
+        }
+        return part;
+      });
+
       if (isBullet) {
         return (
-          <li key={idx} className="ml-4 list-disc text-xs text-zinc-300 leading-relaxed py-0.5 font-sans">
-            {cleanLine.replace(/\*\*/g, '')}
+          <li key={idx} className="ml-5 list-disc text-xs text-zinc-300 leading-relaxed py-0.5 font-sans">
+            {processedContent}
           </li>
         );
       }
 
       if (line.startsWith('### ')) {
         return (
-          <h4 key={idx} className="text-xs font-black uppercase text-violet-400 tracking-wider font-mono mt-3 mb-1">
-            {line.slice(4)}
+          <h4 key={idx} className="text-xs font-semibold uppercase text-blue-400 tracking-wider font-mono mt-3 mb-1 flex items-center gap-1.5 border-b border-zinc-900 pb-1">
+            <Cpu className="w-3.5 h-3.5 text-blue-500" /> {line.slice(4)}
           </h4>
         );
       }
 
       return (
-        <p key={idx} className="text-xs text-zinc-300 leading-relaxed py-0.5 font-sans">
-          {line.replace(/\*\*/g, '')}
+        <p key={idx} className="text-xs text-zinc-300 leading-relaxed py-1.5 font-sans">
+          {processedContent}
         </p>
       );
     });
   };
 
-  // Math helper for stats
+  // Stats Helpers
   const totalOutstanding = invoices
     .filter(inv => inv.status === 'Outstanding' || inv.status === 'Overdue')
     .reduce((sum, inv) => sum + inv.amount, 0);
 
   const overdueInvoicesCount = invoices.filter(inv => inv.status === 'Overdue').length;
 
+  // Active Code Snippet Text for "Get Code"
+  const getSelectedCodeSnippet = (lang: 'node' | 'python' | 'curl') => {
+    if (lang === 'node') {
+      return `import { GoogleGenAI } from "@google/genai";
+
+// Initialize client securely on the server-side
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
+  httpOptions: {
+    headers: { 'User-Agent': 'aistudio-build' }
+  }
+});
+
+async function runCorporateAudit() {
+  const systemInstruction = \`${customSystemInstruction.replace(/`/g, '\\`').replace(/\n/g, '\n  ')}\`;
+
+  const response = await ai.models.generateContent({
+    model: "${selectedModel}",
+    contents: "Please analyze the ledger outstanding records...",
+    config: {
+      systemInstruction: systemInstruction,
+      temperature: ${temperature},
+      maxOutputTokens: ${maxOutputTokens},
+      topP: ${topP},
+      topK: ${topK}
+    }
+  });
+
+  console.log(response.text);
+}`;
+    }
+
+    if (lang === 'python') {
+      return `import os
+from google import genai
+from google.genai import types
+
+# Initialize the Gemini Python client
+client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+
+system_instruction = """${customSystemInstruction.replace(/\n/g, '\n')}"""
+
+response = client.models.generate_content(
+    model='${selectedModel}',
+    contents='Analyze the ledger outstanding records...',
+    config=types.GenerateContentConfig(
+        system_instruction=system_instruction,
+        temperature=${temperature},
+        max_output_tokens=${maxOutputTokens},
+        top_p=${topP},
+        top_k=${topK},
+    )
+)
+
+print(response.text)`;
+    }
+
+    return `curl "https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=\${GEMINI_API_KEY}" \\
+  -H 'Content-Type: application/json' \\
+  -d '{
+    "contents": [{"parts":[{"text": "Analyze the ledger outstanding records..."}]}],
+    "systemInstruction": {
+      "parts": [{"text": "${customSystemInstruction.replace(/\n/g, '\\n').replace(/"/g, '\\"')}"}]
+    },
+    "generationConfig": {
+      "temperature": ${temperature},
+      "maxOutputTokens": ${maxOutputTokens},
+      "topP": ${topP},
+      "topK": ${topK}
+    }
+  }'`;
+  };
+
+  const [activeCodeLang, setActiveCodeLang] = useState<'node' | 'python' | 'curl'>('node');
+
   return (
-    <div className="bg-zinc-950 border border-zinc-900 rounded-2xl overflow-hidden p-1 flex flex-col space-y-6" id="sme-ai-copilot-workspace">
+    <div className="bg-zinc-950 border border-zinc-900 rounded-2xl overflow-hidden p-1 flex flex-col space-y-4" id="sme-ai-copilot-workspace">
       
-      {/* Top Professional HUD Banner */}
-      <div className="bg-zinc-900/30 border border-zinc-900/60 rounded-xl p-5 md:p-6 grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
+      {/* Top AI Studio Header */}
+      <div className="bg-zinc-900/40 border border-zinc-900/60 rounded-xl p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <div className="w-2.5 h-2.5 bg-violet-500 rounded-full animate-ping" />
-            <span className="text-[9px] font-mono tracking-widest text-violet-400 font-bold uppercase">Sovereign Layer Operational</span>
+            <span className="text-[10px] font-mono tracking-widest text-zinc-400 font-bold uppercase">SME AI Assistant</span>
           </div>
-          <h2 className="text-sm font-semibold text-white uppercase tracking-wider">AI CO-PILOT COMMAND DESK</h2>
-          <p className="text-[10px] text-zinc-500 font-mono">FLOWT Autonomous Stage III Matrix</p>
+          <h2 className="text-xs font-bold font-sans text-white uppercase tracking-wider flex items-center gap-2">
+            <Sliders className="w-4 h-4 text-blue-500" /> AI Assistant Workspace
+          </h2>
+          <p className="text-[10px] text-zinc-500 font-mono font-light">Custom assistant guidelines & configuration controls</p>
         </div>
 
-        <div className="p-3 bg-zinc-950 border border-zinc-900 rounded-lg flex items-center gap-3">
-          <Sparkles className="w-5 h-5 text-violet-400 shrink-0" />
-          <div>
-            <span className="block text-[8px] text-zinc-500 font-mono uppercase">Assigned Core Intelligence</span>
-            <span className="text-xs font-light text-zinc-200">Gemini 3.5 Flash Model</span>
-          </div>
-        </div>
+        {/* Tab switcher inside the Playground */}
+        <div className="flex items-center gap-1.5 bg-zinc-950 p-1 rounded-lg border border-zinc-900">
+          <button
+            onClick={() => setActiveSubTab('playground')}
+            className={`px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
+              activeSubTab === 'playground'
+                ? 'bg-zinc-800 text-white'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            <Terminal className="w-3.5 h-3.5 text-blue-500" /> Ask Assistant
+          </button>
 
-        <div className="p-3 bg-zinc-950 border border-zinc-900 rounded-lg flex items-center gap-3">
-          <Database className="w-5 h-5 text-indigo-400 shrink-0" />
-          <div>
-            <span className="block text-[8px] text-zinc-500 font-mono uppercase">Indexed Context Nodes</span>
-            <span className="text-xs font-light text-zinc-200">{invoices.length + bankTransactions.length} Total Parameters</span>
-          </div>
-        </div>
-
-        <div className="p-3 bg-zinc-950 border border-zinc-900 rounded-lg flex items-center gap-3">
-          <Activity className="w-5 h-5 text-pink-400 shrink-0" />
-          <div>
-            <span className="block text-[8px] text-zinc-500 font-mono uppercase">Calculated Risk Index</span>
-            <span className={`text-xs font-mono font-bold ${overdueInvoicesCount > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
-              {overdueInvoicesCount > 0 ? 'MODERATE OVERDUE' : 'NOMINAL SAFE'}
-            </span>
-          </div>
+          <button
+            onClick={() => setActiveSubTab('drafts')}
+            className={`px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
+              activeSubTab === 'drafts'
+                ? 'bg-zinc-800 text-white'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            <Mail className="w-3.5 h-3.5 text-blue-500" /> Draft Customer Email
+          </button>
         </div>
       </div>
 
-      {/* Internal Sub-Workspace Workspace Tabs Switcher */}
-      <div className="flex flex-wrap gap-1 border-b border-zinc-900 pb-2">
-        <button
-          onClick={() => setActiveSubTab('chat')}
-          className={`px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-md transition-all duration-300 flex items-center gap-2 cursor-pointer ${
-            activeSubTab === 'chat'
-              ? 'bg-zinc-100 text-zinc-950 scale-102 shadow-sm'
-              : 'text-zinc-400 hover:text-white hover:bg-zinc-900/40'
-          }`}
-        >
-          <Bot className="w-3.5 h-3.5" /> Dialogue Terminal
-        </button>
-
-        <button
-          onClick={() => setActiveSubTab('drafts')}
-          className={`px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-md transition-all duration-300 flex items-center gap-2 cursor-pointer ${
-            activeSubTab === 'drafts'
-              ? 'bg-zinc-100 text-zinc-950 scale-102 shadow-sm'
-              : 'text-zinc-400 hover:text-white hover:bg-zinc-900/40'
-          }`}
-        >
-          <Mail className="w-3.5 h-3.5" /> AI Outreach Drafts
-        </button>
-
-        <button
-          onClick={() => setActiveSubTab('vectors')}
-          className={`px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-md transition-all duration-300 flex items-center gap-2 cursor-pointer ${
-            activeSubTab === 'vectors'
-              ? 'bg-zinc-100 text-zinc-950 scale-102 shadow-sm'
-              : 'text-zinc-400 hover:text-white hover:bg-zinc-900/40'
-          }`}
-        >
-          <Code className="w-3.5 h-3.5" /> Vector Payload Monitor
-        </button>
-
-        <button
-          onClick={() => setActiveSubTab('diagnostics')}
-          className={`px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-md transition-all duration-300 flex items-center gap-2 cursor-pointer ${
-            activeSubTab === 'diagnostics'
-              ? 'bg-zinc-100 text-zinc-950 scale-102 shadow-sm'
-              : 'text-zinc-400 hover:text-white hover:bg-zinc-900/40'
-          }`}
-        >
-          <AlertTriangle className="w-3.5 h-3.5" /> Liquidity Risk Metrics
-        </button>
-      </div>
-
-      {/* Main Interactive Screen Segment */}
-      <div className="min-h-[560px] flex flex-col justify-stretch">
+      {/* Main Sandbox 3-Column Studio Interface */}
+      <div className="grid grid-cols-1 xl:cols-12 xl:grid-cols-12 gap-4 items-stretch">
         
-        {/* VIEW A: DIALOGUE TERMINAL */}
-        {activeSubTab === 'chat' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch animate-float-in">
-            {/* Left rail suggestions */}
-            <div className="lg:col-span-4 bg-zinc-950 border border-zinc-900 rounded-xl p-5 flex flex-col justify-between space-y-4">
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 border-b border-zinc-900 pb-3">
-                  <Settings className="w-4 h-4 text-violet-400" />
-                  <div>
-                    <h4 className="text-[10px] font-mono font-bold tracking-widest text-zinc-400 uppercase">Interactive Pipelines</h4>
-                    <p className="text-[8.5px] text-zinc-500 font-mono">Instant dataset integration</p>
-                  </div>
-                </div>
-
-                <p className="text-xs text-zinc-400 leading-relaxed font-light">
-                  Dispatch any high-level semantic command directly. The LLM processes your live cashbook context instantly.
-                </p>
-
-                <div className="space-y-2">
-                  {samplePrompts.map((p, i) => (
-                    <button
-                      key={i}
-                      onClick={() => handleSendMessage(p.prompt)}
-                      className="w-full text-left p-3 rounded-lg bg-zinc-900/40 border border-zinc-900 hover:border-violet-500/40 hover:bg-zinc-900/80 hover:scale-[1.01] text-zinc-300 hover:text-white transition-all text-xs font-mono flex items-center justify-between group cursor-pointer"
-                    >
-                      <span className="truncate pr-2">{p.label}</span>
-                      <ArrowUpRight className="w-3.5 h-3.5 text-zinc-500 group-hover:text-violet-400 transition-colors shrink-0" />
-                    </button>
-                  ))}
-                </div>
+        {/* COLUMN 1: LEFT COMPONENT - SYSTEM INSTRUCTIONS AND LEDGER CONTEXT (xl:col-span-3) */}
+        <div className="xl:col-span-3 flex flex-col space-y-4 bg-zinc-950 border border-zinc-900 rounded-xl p-4">
+          
+          {/* Header 1 */}
+          <div className="flex items-center justify-between border-b border-zinc-900 pb-2.5">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-3.5 h-3.5 text-blue-500" />
+              <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-300 font-bold">Assistant Guidelines</span>
+            </div>
+            
+            {!editingInstructions ? (
+              <button 
+                onClick={() => {
+                  setInstructionDraft(customSystemInstruction);
+                  setEditingInstructions(true);
+                }}
+                className="text-[9px] font-bold font-mono text-zinc-500 hover:text-blue-500 cursor-pointer"
+              >
+                EDIT
+              </button>
+            ) : (
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => setEditingInstructions(false)}
+                  className="text-[9px] font-bold font-mono text-zinc-500 hover:text-rose-400 cursor-pointer"
+                >
+                  CANCEL
+                </button>
+                <button 
+                  onClick={handleApplyInstructions}
+                  className="text-[9px] font-bold font-mono text-emerald-400 hover:text-emerald-300 cursor-pointer"
+                >
+                  SAVE
+                </button>
               </div>
+            )}
+          </div>
 
-              {/* Feed metrics */}
-              <div className="p-3.5 bg-violet-950/20 border border-violet-905 rounded-lg space-y-2">
-                <span className="text-[8.5px] font-mono font-bold tracking-widest text-violet-400 uppercase block">
-                  Synchronized Vector Space
+          {/* System Instructions content box */}
+          <div className="space-y-2">
+            {editingInstructions ? (
+              <textarea
+                value={instructionDraft}
+                onChange={(e) => setInstructionDraft(e.target.value)}
+                className="w-full text-[11px] font-mono bg-zinc-900 border border-zinc-800 rounded p-3 h-44 text-zinc-100 placeholder-zinc-700 outline-none focus:border-blue-500"
+                placeholder="Instruct the model how to act..."
+              />
+            ) : (
+              <div className="bg-zinc-900/30 border border-zinc-900 p-3.5 rounded text-[11px] font-mono text-zinc-400 leading-relaxed select-text min-h-36 max-h-44 overflow-y-auto whitespace-pre-wrap">
+                {customSystemInstruction}
+              </div>
+            )}
+            <p className="text-[9px] text-zinc-650 font-sans leading-relaxed">
+              *Tweak these behavioral instructions directly to set the persona and tone of the AI assistant when discussing customer accounts.
+            </p>
+          </div>
+
+          {/* Collapsible live variables context parameters block */}
+          <div className="border border-zinc-900 rounded-lg overflow-hidden bg-zinc-900/10">
+            <button 
+              onClick={() => setShowLiveContext(!showLiveContext)}
+              className="w-full p-2.5 px-3 flex justify-between items-center hover:bg-zinc-900/30 transition-all text-[10px] font-mono tracking-wider text-zinc-400 cursor-pointer border-b border-zinc-900"
+            >
+              <span className="flex items-center gap-1.5">
+                <Database className="w-3.5 h-3.5 text-blue-500" /> Linked Invoice & Bank Data
+              </span>
+              <ChevronRight className={`w-3 h-3 text-zinc-500 transition-transform ${showLiveContext ? 'rotate-90' : ''}`} />
+            </button>
+            
+            {showLiveContext && (
+              <div className="p-3 text-[10px] font-mono bg-zinc-950 text-zinc-400 max-h-[220px] overflow-y-auto leading-normal space-y-2 select-text">
+                <div className="text-zinc-500">// Automatically synchronized from your live sheets</div>
+                <div className="border-t border-zinc-900 pt-2 font-semibold text-zinc-300">Invoice List Context:</div>
+                <pre className="text-zinc-400 text-[9px] bg-zinc-900/20 p-2 border border-zinc-900 rounded scrollbar-none whitespace-pre-wrap">
+                  {invoices.map(inv => `${inv.invoiceNumber}: ${inv.clientName} (${inv.currency} ${inv.amount}) [${inv.status}]`).join('\n')}
+                </pre>
+                
+                <div className="pt-2 font-semibold text-zinc-300">Bank Statement Context:</div>
+                <pre className="text-zinc-400 text-[9px] bg-zinc-900/20 p-2 border border-zinc-900 rounded scrollbar-none whitespace-pre-wrap">
+                  {bankTransactions.map(tx => `${tx.date} Ref: ${tx.reference} - ${tx.currency} ${tx.amount} (${tx.status})`).join('\n')}
+                </pre>
+              </div>
+            )}
+          </div>
+
+          {/* Quick Sandbox Status metrics */}
+          <div className="bg-zinc-950 border border-zinc-900 p-3 rounded-lg space-y-2 font-mono">
+            <span className="text-[9px] text-zinc-500 uppercase tracking-widest block font-bold">Workspace Connection Status</span>
+            <div className="space-y-1.5 text-[10px] text-zinc-400 leading-normal">
+              <div className="flex justify-between">
+                <span>Active Invoices database:</span>
+                <span className="text-zinc-300 font-bold">{invoices.length} invoices</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Bank accounts mapped:</span>
+                <span className="text-zinc-300 font-bold">{bankTransactions.length} items</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Payment risk indicator:</span>
+                <span className={`font-bold ${overdueInvoicesCount > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                  {overdueInvoicesCount > 0 ? 'OVERDUE INVOICES DETECTED' : 'ALL RECONCILED'}
                 </span>
-                <div className="space-y-1 text-[10px] text-zinc-550 font-mono">
-                  <div className="flex justify-between">
-                    <span>Active Invoices:</span>
-                    <span className="text-zinc-300 font-bold">{invoices.length}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Incoming Wire Feeds:</span>
-                    <span className="text-zinc-300 font-bold">{bankTransactions.length}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Overdue Outstanding:</span>
-                    <span className="text-rose-400 font-bold">{overdueInvoicesCount} counts</span>
-                  </div>
-                </div>
               </div>
             </div>
+          </div>
 
-            {/* Main Chat Terminal */}
-            <div className="lg:col-span-8 bg-zinc-950 border border-zinc-900 rounded-xl flex flex-col h-[520px] overflow-hidden">
-              <div className="p-4 bg-zinc-900/10 border-b border-zinc-900 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-violet-500 animate-pulse" />
-                  <span className="text-[9px] font-mono text-zinc-400 uppercase tracking-widest">Active Chat Console</span>
-                </div>
+        </div>
+
+        {/* COLUMN 2: MIDDLE COMPONENT - ACTIVE WORKSPACE / TESTBED (xl:col-span-6) */}
+        <div className="xl:col-span-6 flex flex-col bg-zinc-950 border border-zinc-900 rounded-xl overflow-hidden min-h-[580px]">
+          
+          {/* TAB A: PLAYGROUND TESTBED */}
+          {activeSubTab === 'playground' && (
+            <div className="flex flex-col flex-1 h-full">
+              {/* Sandbox info header bar */}
+              <div className="p-3 bg-zinc-900/20 border-b border-zinc-900 flex justify-between items-center text-[10px] font-mono text-zinc-400">
+                <span className="flex items-center gap-1.5 font-bold uppercase tracking-wider">
+                  <Terminal className="w-3.5 h-3.5 text-blue-500" /> Active Conversation Workspace
+                </span>
                 <button
-                  onClick={clearChat}
-                  className="p-1 px-3 rounded bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-rose-400 hover:border-rose-900/30 transition-all text-[9px] uppercase font-bold font-mono tracking-wider flex items-center gap-1 cursor-pointer"
+                  onClick={clearSandbox}
+                  className="px-2.5 py-1 text-[9px] font-extrabold uppercase bg-zinc-900 hover:text-rose-400 border border-zinc-800 hover:border-rose-950 rounded transition-all flex items-center gap-1 cursor-pointer"
                 >
-                  <Trash2 className="w-3 h-3" /> Clear History
+                  <Trash2 className="w-3 h-3 text-zinc-500" /> Reset History
                 </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-zinc-950">
+              {/* Chat messages dialogue playground flow (Google AI Studio aesthetic) */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-4 max-h-[445px] min-h-[385px] bg-zinc-950 scrollbar-none">
                 {messages.map((m, idx) => (
                   <div
                     key={idx}
-                    className={`flex gap-3 max-w-[85%] ${
-                      m.role === 'user' ? 'ml-auto flex-row-reverse' : ''
+                    className={`border rounded-lg overflow-hidden group ${
+                      m.role === 'user' 
+                        ? 'border-zinc-800 bg-zinc-900/30 ml-4' 
+                        : 'border-zinc-900 bg-zinc-950/20 mr-4'
                     }`}
                   >
-                    <div
-                      className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 border text-[10px] uppercase font-bold font-mono ${
-                        m.role === 'user'
-                          ? 'bg-zinc-800 border-zinc-700 text-zinc-200'
-                          : 'bg-violet-950 border-violet-900 text-violet-400'
-                      }`}
-                    >
-                      {m.role === 'user' ? <User className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5" />}
+                    {/* Header info bar inside each output block */}
+                    <div className="p-2.5 border-b border-zinc-900 bg-zinc-900/10 flex justify-between items-center text-[9px] font-mono text-zinc-500">
+                      <div className="flex items-center gap-1.5">
+                        {m.role === 'user' ? (
+                          <span className="px-2 py-0.5 bg-zinc-800 text-zinc-300 font-bold rounded uppercase text-[8px]">YOUR QUESTION</span>
+                        ) : (
+                          <span className="px-2 py-0.5 bg-zinc-900 text-blue-400 font-bold rounded uppercase text-[8px] border border-blue-900/40">AI ASSISTANT RESPONSE</span>
+                        )}
+                        <span>{new Date().toLocaleTimeString()}</span>
+                      </div>
+                      
+                      {m.role === 'model' && (
+                        <div className="flex items-center gap-2">
+                          <button 
+                            onClick={() => handleCopyText(m.content, 'dialogue-block')}
+                            className="px-2.5 py-1 text-[10px] bg-zinc-900 hover:bg-zinc-805 hover:text-white border border-zinc-800 hover:border-zinc-700 rounded transition-colors flex items-center gap-1.5 text-zinc-400 cursor-pointer"
+                            title="Copy reply text"
+                          >
+                            <Copy className="w-3 h-3 text-blue-500" /> Copy Reply
+                          </button>
+                        </div>
+                      )}
                     </div>
 
-                    <div
-                      className={`p-3.5 rounded-lg space-y-2 ${
-                        m.role === 'user'
-                          ? 'bg-zinc-900 border border-zinc-850 text-zinc-100'
-                          : 'bg-zinc-950 border border-zinc-900 text-zinc-300'
-                      }`}
-                    >
+                    <div className="p-4 bg-zinc-950/45 text-xs text-zinc-300 leading-relaxed font-sans scrollbar-none select-text">
                       {formatMsgText(m.content)}
                     </div>
                   </div>
                 ))}
 
                 {chatLoading && (
-                  <div className="flex gap-3 max-w-[80%]">
-                    <div className="w-7 h-7 rounded-sm bg-violet-950 border border-violet-900 flex items-center justify-center text-violet-400 shrink-0">
-                      <Bot className="w-4 h-4 animate-bounce" />
+                  <div className="border border-zinc-905 bg-zinc-900/10 rounded-lg p-4 flex items-center justify-between">
+                    <div className="flex items-center gap-3 text-xs text-zinc-400 font-mono">
+                      <RefreshCw className="w-4 h-4 animate-spin text-blue-500" />
+                      <span>Drafting response... Reading linked records using AI model {selectedModel}...</span>
                     </div>
-                    <div className="p-3 bg-zinc-950 border border-zinc-900 rounded-lg flex items-center gap-2">
-                      <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-bounce" />
-                      <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-bounce delay-100" />
-                      <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-bounce delay-200" />
+                    <div className="flex gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce delay-75" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce delay-150" />
                     </div>
                   </div>
                 )}
                 <div ref={scrollRef} />
               </div>
 
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  handleSendMessage(userInput);
-                }}
-                className="p-4 border-t border-zinc-900 bg-zinc-900/10 flex items-center gap-3"
-              >
-                <input
-                  type="text"
-                  required
-                  value={userInput}
-                  onChange={(e) => setUserInput(e.target.value)}
-                  placeholder="Type queries (e.g. 'Synthesize overdue balances')"
-                  className="flex-1 px-4 py-2.5 text-xs rounded-lg bg-zinc-950 border border-zinc-900 text-zinc-100 placeholder-zinc-700 focus:outline-none focus:border-violet-500 transition-colors font-mono"
-                  disabled={chatLoading}
-                />
-                <button
-                  type="submit"
-                  disabled={chatLoading || !userInput.trim()}
-                  className="p-2.5 px-4 rounded-lg bg-violet-600 hover:bg-violet-500 hover:scale-[1.02] active:scale-[0.98] text-white disabled:opacity-40 transition-all font-mono font-bold text-xs uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
+              {/* Bottom user continuous prompt input box (Google AI Studio prompt testbed style) */}
+              <div className="p-4 border-t border-zinc-900 bg-zinc-900/10">
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleRunPrompt(userInput);
+                  }}
+                  className="relative flex items-center"
                 >
-                  Send <Send className="w-3 h-3" />
-                </button>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* VIEW B: AI OUTREACH DRAFT GENERATOR */}
-        {activeSubTab === 'drafts' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch animate-float-in" id="ai-outreach-center">
-            {/* Config panel */}
-            <div className="lg:col-span-4 bg-zinc-950 border border-zinc-900 rounded-xl p-5 flex flex-col justify-between space-y-6">
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 border-b border-zinc-900 pb-3">
-                  <Mail className="w-4 h-4 text-violet-400" />
-                  <div>
-                    <h4 className="text-[10px] font-mono font-bold tracking-widest text-zinc-400 uppercase">Drafting Desk</h4>
-                    <p className="text-[8.5px] text-zinc-550 font-mono font-bold">Automated client alerts</p>
-                  </div>
-                </div>
-
-                <p className="text-xs text-zinc-400 leading-relaxed font-light">
-                  Select any database invoices to compile customized overdue notification drafts with automated payment coordinates.
-                </p>
-
-                {/* Overdue/Outstanding Invoices select */}
-                <div className="space-y-1.5">
-                  <label className="block text-[9px] font-mono text-zinc-500 uppercase">Target Invoice Record</label>
-                  <select
-                    value={selectedInvoiceId}
-                    onChange={(e) => setSelectedInvoiceId(e.target.value)}
-                    className="w-full p-2.5 bg-zinc-900 border border-zinc-800 rounded text-xs text-white uppercase font-mono focus:outline-none focus:border-violet-500 cursor-pointer"
-                  >
-                    {invoices.length === 0 ? (
-                      <option value="">No Active Invoices Available</option>
-                    ) : (
-                      invoices.map((inv) => (
-                        <option key={inv.id} value={inv.id} className="bg-zinc-950 text-zinc-200">
-                          {inv.id} — {inv.clientName} (${inv.amount}) [{inv.status}]
-                        </option>
-                      ))
-                    )}
-                  </select>
-                </div>
-
-                {/* Tone Selectors */}
-                <div className="space-y-2">
-                  <span className="block text-[9px] font-mono text-zinc-500 uppercase">Assertiveness Level Tone</span>
-                  <div className="grid grid-cols-3 gap-2">
+                  <input
+                    type="text"
+                    required
+                    value={userInput}
+                    onChange={(e) => setUserInput(e.target.value)}
+                    placeholder="Ask about your accounts (e.g., 'Which invoices are overdue?' or 'Draft a friendly warning email for INV-2026-002')"
+                    className="w-full pl-4 pr-24 py-3 bg-zinc-950 border border-zinc-900 rounded-lg text-xs font-mono text-zinc-100 placeholder-zinc-700 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/25 transition-all text-[11px]"
+                    disabled={chatLoading}
+                  />
+                  <div className="absolute right-2 flex items-center gap-1.5">
                     <button
-                      onClick={() => setOutreachTone('cordial')}
-                      className={`py-2 text-[10px] uppercase font-mono rounded tracking-tight cursor-pointer font-bold border transition-all ${
-                        outreachTone === 'cordial'
-                          ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800/80'
-                          : 'bg-zinc-900/60 text-zinc-500 border-zinc-900 hover:text-zinc-300 hover:border-zinc-800'
-                      }`}
+                      type="submit"
+                      disabled={chatLoading || !userInput.trim()}
+                      className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-md text-[10px] font-mono font-bold tracking-wider uppercase disabled:opacity-40 transition-all flex items-center gap-1 cursor-pointer"
                     >
-                      Cordial
-                    </button>
-                    <button
-                      onClick={() => setOutreachTone('assertive')}
-                      className={`py-2 text-[10px] uppercase font-mono rounded tracking-tight cursor-pointer font-bold border transition-all ${
-                        outreachTone === 'assertive'
-                          ? 'bg-amber-950/40 text-amber-400 border-amber-800/80'
-                          : 'bg-zinc-900/60 text-zinc-500 border-zinc-900 hover:text-zinc-300 hover:border-zinc-800'
-                      }`}
-                    >
-                      Assertive
-                    </button>
-                    <button
-                      onClick={() => setOutreachTone('urgent')}
-                      className={`py-2 text-[10px] uppercase font-mono rounded tracking-tight cursor-pointer font-bold border transition-all ${
-                        outreachTone === 'urgent'
-                          ? 'bg-rose-950/40 text-rose-400 border-rose-800/80'
-                          : 'bg-zinc-900/60 text-zinc-500 border-zinc-900 hover:text-zinc-300 hover:border-zinc-800'
-                      }`}
-                    >
-                      Urgent
+                      SEND <Play className="w-3 h-3 text-white fill-white" />
                     </button>
                   </div>
+                </form>
+                <div className="flex justify-between items-center mt-2.5 px-1">
+                  <div className="flex items-center gap-1 text-[9px] text-zinc-600 font-mono">
+                    <Info className="w-3 h-3 text-zinc-700" />
+                    <span>Responses are guided by the behavioral configurations and creativity level selected.</span>
+                  </div>
+                  <span className="text-[9px] text-zinc-650 font-mono uppercase">Workspace Secure Connection</span>
                 </div>
-
-                <button
-                  onClick={handleGenerateDraft}
-                  disabled={draftLoading || invoices.length === 0}
-                  className="w-full py-3 bg-violet-600 hover:bg-violet-500 active:scale-[0.98] hover:scale-[1.01] transition-all text-xs font-mono tracking-widest uppercase text-white font-bold rounded-sm mt-2 disabled:opacity-45 flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  {draftLoading ? (
-                    <>Synthesizing...</>
-                  ) : (
-                    <>
-                      Generate Outreach <ChevronRight className="w-3.5 h-3.5" />
-                    </>
-                  )}
-                </button>
-              </div>
-
-              {/* Status Alert Badge */}
-              <div className="p-3 bg-zinc-900/40 border border-zinc-900 rounded-lg flex items-center gap-2.5 text-zinc-550 font-mono text-[9px]">
-                <ShieldCheck className="w-4 h-4 text-zinc-500" />
-                <span>Encrypted delivery pipeline available via standard SMTP configuration parameters.</span>
               </div>
             </div>
+          )}
 
-            {/* Output Panel Mockup */}
-            <div className="lg:col-span-8 bg-zinc-950 border border-zinc-900 rounded-xl flex flex-col h-[520px] overflow-hidden relative">
-              <div className="p-4 bg-zinc-900/10 border-b border-zinc-900 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-violet-400" />
-                  <span className="text-[9px] font-mono text-zinc-400 uppercase tracking-widest">Sovereign Mail Outbox Sandbox</span>
+          {/* TAB B: REMITTANCE OUTREACH DRAFT STUDIO */}
+          {activeSubTab === 'drafts' && (
+            <div className="flex flex-col flex-1 h-full p-4 space-y-4">
+              <div className="border-b border-zinc-900 pb-2 flex justify-between items-center">
+                <div>
+                  <h3 className="text-xs font-bold font-sans uppercase text-white tracking-wider flex items-center gap-1.5">
+                    <Mail className="w-4 h-4 text-blue-500" /> Customer Email Generator
+                  </h3>
+                  <p className="text-[9px] text-zinc-500 font-mono font-normal">Create professional payment requests and reminders using customer invoice details</p>
                 </div>
-
+                
                 {generatedDraft && (
                   <button
-                    onClick={handleCopyDraft}
+                    onClick={() => handleCopyText(generatedDraft, 'draft')}
                     className={`px-3 py-1.5 rounded text-[9px] uppercase font-mono font-bold tracking-wider flex items-center gap-1.5 transition-all cursor-pointer ${
                       copiedStatus 
                         ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' 
@@ -593,198 +661,261 @@ FLOWT Enterprise System`;
                   >
                     {copiedStatus ? (
                       <>
-                        <Check className="w-3.5 h-3.5" /> Copied Asset!
+                        <Check className="w-3.5 h-3.5" /> Copied Draft Email!
                       </>
                     ) : (
                       <>
-                        <Copy className="w-3.5 h-3.5" /> Copy Draft
+                        <Copy className="w-3.5 h-3.5" /> Copy Email Draft
                       </>
                     )}
                   </button>
                 )}
               </div>
 
-              {/* Display area */}
-              <div className="flex-1 p-5 overflow-y-auto space-y-4 bg-zinc-950 font-mono select-text">
+              {/* Stack Configuration pane inside the page */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
+                
+                {/* Select Target Invoice parameter */}
+                <div className="bg-zinc-900/20 border border-zinc-900 rounded-lg p-3.5 space-y-3">
+                  <div className="space-y-1">
+                    <label className="block text-[9px] font-mono text-zinc-500 uppercase tracking-widest font-bold">Select Invoice for Reminder</label>
+                    <select
+                      value={selectedInvoiceId}
+                      onChange={(e) => setSelectedInvoiceId(e.target.value)}
+                      className="w-full text-xs font-mono p-2 bg-zinc-950 border border-zinc-800 rounded uppercase text-zinc-300 focus:border-blue-500 outline-none cursor-pointer"
+                    >
+                      {invoices.length === 0 ? (
+                        <option value="">No Invoices loaded in workspace</option>
+                      ) : (
+                        invoices.map(inv => (
+                          <option key={inv.id} value={inv.id} className="bg-zinc-950">
+                            {inv.invoiceNumber} - {inv.clientName} (${inv.amount.toLocaleString()}) [{inv.status}]
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  </div>
+
+                  {/* Urgency Tone Selector */}
+                  <div className="space-y-1.5">
+                    <label className="block text-[9px] font-mono text-zinc-500 uppercase tracking-widest font-bold">Select Email Tone</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        onClick={() => setOutreachTone('cordial')}
+                        className={`py-1.5 text-[9px] uppercase font-mono font-bold rounded cursor-pointer border transition-all ${
+                          outreachTone === 'cordial'
+                            ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800/80'
+                            : 'bg-zinc-900/60 text-zinc-500 border-zinc-900 hover:text-zinc-300 hover:border-zinc-850'
+                        }`}
+                      >
+                        Friendly
+                      </button>
+                      <button
+                        onClick={() => setOutreachTone('assertive')}
+                        className={`py-1.5 text-[9px] uppercase font-mono font-bold rounded cursor-pointer border transition-all ${
+                          outreachTone === 'assertive'
+                            ? 'bg-amber-950/40 text-amber-400 border-amber-800/80'
+                            : 'bg-zinc-900/60 text-zinc-500 border-zinc-900 hover:text-zinc-300 hover:border-zinc-850'
+                        }`}
+                      >
+                        Firm
+                      </button>
+                      <button
+                        onClick={() => setOutreachTone('urgent')}
+                        className={`py-1.5 text-[9px] uppercase font-mono font-bold rounded cursor-pointer border transition-all ${
+                          outreachTone === 'urgent'
+                            ? 'bg-rose-950/40 text-rose-400 border-rose-800/80'
+                            : 'bg-zinc-900/60 text-zinc-500 border-zinc-900 hover:text-zinc-300 hover:border-zinc-850'
+                        }`}
+                      >
+                        Final Notice
+                      </button>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleGenerateOutreach}
+                    disabled={draftLoading || invoices.length === 0}
+                    className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded font-mono font-bold uppercase tracking-wider text-[10px] sm:text-xs transition-all flex items-center justify-center gap-1.5 disabled:opacity-45 cursor-pointer"
+                  >
+                    {draftLoading ? 'CONSTRUCTING REMINDER EMAIL...' : 'CREATE DRAFT EMAIL'}
+                  </button>
+                </div>
+
+                {/* Live Variables Preview details */}
+                <div className="p-3 bg-zinc-900/10 border border-zinc-900 rounded-lg flex flex-col justify-between text-[10.5px] font-mono leading-relaxed text-zinc-400 font-light">
+                  <div className="space-y-2">
+                    <span className="block text-[8.5px] uppercase font-bold text-blue-450 font-sans">Selected Invoice Details</span>
+                    {selectedInvoiceId && invoices.find(i => i.id === selectedInvoiceId) ? (
+                      (() => {
+                        const matched = invoices.find(i => i.id === selectedInvoiceId)!;
+                        return (
+                          <div className="space-y-1.5">
+                            <div>Invoice ID: <strong className="text-zinc-200">{matched.invoiceNumber}</strong></div>
+                            <div>Client name: <strong className="text-zinc-200">{matched.clientName}</strong></div>
+                            <div>Outstanding: <strong className="text-zinc-200">{matched.currency} {matched.amount.toLocaleString()}</strong></div>
+                            <div>Matured Date: <strong className="text-rose-400">{new Date(matched.dueDate).toLocaleDateString()}</strong></div>
+                            <div>Status Parameter: <span className={`px-1.5 py-0.5 rounded text-[8.5px] font-bold ${
+                              matched.status === 'Paid' ? 'bg-emerald-950 text-emerald-400' :
+                              matched.status === 'Overdue' ? 'bg-rose-950 text-rose-400' : 'bg-amber-950 text-amber-400'
+                            }`}>{matched.status}</span></div>
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      <div className="text-zinc-600">No active parameter mapped inside current context.</div>
+                    )}
+                  </div>
+                  <div className="text-[9px] text-zinc-600 font-sans italic pt-2 border-t border-zinc-900 mt-2">
+                    "Email dunning rules automatically embed secure Stripe portal URLs with auto-reconciliation telemetry."
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Output Generation Box */}
+              <div className="bg-zinc-950 border border-zinc-900 rounded-lg p-4 min-h-[180px] max-h-[220px] overflow-y-auto select-text font-mono">
                 {draftLoading ? (
-                  <div className="h-full flex flex-col justify-center items-center gap-3">
-                    <span className="w-5 h-5 rounded-full border-2 border-violet-500 border-t-transparent animate-spin" />
-                    <span className="text-[10px] text-zinc-500 font-mono tracking-widest uppercase">Consulting Credit Parameters...</span>
+                  <div className="h-full flex flex-col items-center justify-center space-y-2 text-zinc-500 text-[10px] py-12">
+                    <RefreshCw className="w-5 h-5 text-blue-500 animate-spin" />
+                    <span>Mapping secure placeholders and compiling outreach communication variables...</span>
                   </div>
                 ) : generatedDraft ? (
-                  <div className="bg-zinc-950/20 border border-zinc-900 rounded-lg p-5 text-xs text-zinc-300 leading-relaxed font-mono whitespace-pre-wrap max-w-2xl mx-auto border-dashed">
+                  <div className="whitespace-pre-wrap text-[11px] leading-relaxed text-zinc-300 font-mono bg-zinc-900/10 p-3 rounded border border-zinc-900/60">
                     {generatedDraft}
                   </div>
                 ) : (
-                  <div className="h-full flex flex-col justify-center items-center text-center max-w-sm mx-auto space-y-3">
-                    <Mail className="w-8 h-8 text-zinc-700 stroke-[1.5]" />
-                    <h5 className="text-[10px] uppercase font-mono tracking-wider text-zinc-400 font-bold">No Generated Communication Asset</h5>
-                    <p className="text-[10px] text-zinc-500 font-sans font-light leading-relaxed">
-                      Select an invoice record and tone on the left pane, then compile to render professional overdue notice drafts instantly.
+                  <div className="text-center py-14 space-y-2 max-w-sm mx-auto">
+                    <Mail className="w-7 h-7 text-zinc-700 mx-auto" />
+                    <h5 className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider">No Active Draft Generated</h5>
+                    <p className="text-[10px] text-zinc-550 font-sans leading-relaxed">
+                      Select any record and pick an outreach tone Urgency level on the top panel, then compile to trigger AI generation.
                     </p>
                   </div>
                 )}
               </div>
+
             </div>
+          )}
+
+          {/* TAB C: API SDK CODE GENERATOR */}
+          {activeSubTab === 'get-code' && (
+            <div className="flex flex-col flex-1 h-full p-4 space-y-4">
+              <div className="border-b border-zinc-900 pb-2">
+                <h3 className="text-xs font-bold font-sans uppercase text-white tracking-wider flex items-center gap-1.5">
+                  <Code className="w-4 h-4 text-violet-400" /> Developer Get Code SDK
+                </h3>
+                <p className="text-[9px] text-zinc-500 font-mono">Grab identical SDK code segments mapping tuned parameter sets and instructions for live production integrations.</p>
+              </div>
+
+              {/* Inner language tabs */}
+              <div className="flex bg-zinc-900/40 border border-zinc-905 p-1 rounded-md self-start gap-1">
+                {(['node', 'python', 'curl'] as const).map(lang => (
+                  <button
+                    key={lang}
+                    onClick={() => setActiveCodeLang(lang)}
+                    className={`px-3 py-1 text-[9.5px] font-mono tracking-wider rounded font-bold uppercase cursor-pointer ${
+                      activeCodeLang === lang 
+                        ? 'bg-zinc-800 text-white' 
+                        : 'text-zinc-500 hover:text-zinc-300'
+                    }`}
+                  >
+                    {lang === 'node' ? 'NodeJS SDK' : lang === 'python' ? 'Python SDK' : 'Classic cURL'}
+                  </button>
+                ))}
+              </div>
+
+              {/* Code output display box */}
+              <div className="relative border border-zinc-900 bg-zinc-900/20 rounded-lg overflow-hidden flex-1 flex flex-col">
+                <div className="p-2 border-b border-zinc-900 bg-zinc-950/80 flex justify-between items-center text-[9px] text-zinc-500 font-mono">
+                  <span>{activeCodeLang === 'node' ? 'server-side TypeScript client initialization' : activeCodeLang === 'python' ? 'Python official runtime setup' : 'Standard REST API request'}</span>
+                  <button
+                    onClick={() => handleCopyText(getSelectedCodeSnippet(activeCodeLang), 'code-snippet')}
+                    className="p-1 hover:text-white transition-colors cursor-pointer flex items-center gap-1.5"
+                    title="Copy snippet"
+                  >
+                    {copiedCodeStatus === 'code-snippet' ? (
+                      <span className="text-emerald-400 uppercase text-[8.5px] font-bold flex items-center gap-1">
+                        <Check className="w-3 h-3" /> Copied SDK Code!
+                      </span>
+                    ) : (
+                      <>
+                        <Copy className="w-3 h-3 text-zinc-400" /> Copy Code
+                      </>
+                    )}
+                  </button>
+                </div>
+                
+                <div className="p-3.5 flex-1 overflow-y-auto font-mono text-[10px] leading-relaxed text-zinc-300 max-h-[300px] select-text scrollbar-none whitespace-pre">
+                  {getSelectedCodeSnippet(activeCodeLang)}
+                </div>
+                
+                <div className="p-2.5 bg-violet-950/10 border-t border-zinc-900/80 flex items-center gap-2 text-[9px] text-zinc-550 font-sans leading-relaxed">
+                  <ShieldCheck className="w-3.5 h-3.5 text-violet-500 shrink-0" />
+                  <span>Configured using your custom system instructions and current model parameters tuned in the right panel! Ready for copy-paste deployment.</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+        </div>
+
+        {/* COLUMN 3: RIGHT COMPONENT - MODELS TUNING SLIDERS (xl:col-span-3) */}
+        <div className="xl:col-span-3 flex flex-col space-y-5 bg-zinc-950 border border-zinc-900 rounded-xl p-5 overflow-y-auto xl:max-h-[700px] scrollbar-none">
+          
+          {/* Section header */}
+          <div className="border-b border-zinc-900 pb-2.5 flex items-center gap-2">
+            <Sliders className="w-4 h-4 text-blue-500" />
+            <span className="text-[11px] font-mono uppercase tracking-wider text-zinc-300 font-bold">Settings & Controls</span>
           </div>
-        )}
 
-        {/* VIEW C: VECTOR MONITOR DEVELOPER SCREEN */}
-        {activeSubTab === 'vectors' && (
-          <div className="space-y-5 animate-float-in" id="ai-vector-monitor">
-            <div className="p-5 bg-zinc-950 border border-zinc-900 rounded-xl space-y-3">
-              <div className="flex items-center gap-2">
-                <Code className="w-4 h-4 text-violet-400" />
-                <h4 className="text-xs uppercase font-mono text-white font-bold tracking-widest">Active Ledger Embedding Context System</h4>
-              </div>
-              <p className="text-xs text-zinc-400 font-light leading-relaxed max-w-3xl">
-                The FLOWT sovereign co-pilot compiles real-time corporate parameters into formatted schemas before injecting them into the core Gemini 3.5 Large Language Model sandbox session to prevent training drift and security lapses.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* System instructions payload */}
-              <div className="border border-zinc-900 bg-zinc-950 rounded-xl p-5 space-y-3 font-mono">
-                <div className="flex justify-between items-center border-b border-zinc-900 pb-2">
-                  <span className="text-[10px] font-bold text-violet-400 uppercase tracking-wider">01 // System Security Instructions</span>
-                  <span className="px-2 py-0.5 bg-violet-950/50 text-violet-300 border border-violet-900 text-[8px] rounded uppercase font-black uppercase">Hardlocked</span>
-                </div>
-                <div className="text-[11px] text-zinc-400 leading-relaxed space-y-2 bg-zinc-900/30 p-4 border border-zinc-900 rounded select-text max-h-[280px] overflow-y-auto">
-                  <p className="text-zinc-500">// Static instructions injected on every multi-turn prompt session</p>
-                  <p>You are an elite, corporate SME cashflow assistant representing FLOWT Platform.</p>
-                  <p>Your primary goal is to analyze real-time bank wire settlements and unpaid customer files to flag risk ratings and write alerts.</p>
-                  <p>Always output neat, highly professional, precise corporate formats. Limit self-referencing descriptions. Retain extreme security protocols.</p>
-                </div>
-              </div>
-
-              {/* Data registry payload */}
-              <div className="border border-zinc-900 bg-zinc-950 rounded-xl p-5 space-y-3 font-mono">
-                <div className="flex justify-between items-center border-b border-zinc-900 pb-2">
-                  <span className="text-[10px] font-bold text-violet-400 uppercase tracking-wider">02 // Real-time Inward Ledger JSON</span>
-                  <span className="text-[8px] text-zinc-500 uppercase">Synchronized Dynamic Feed</span>
-                </div>
-                <div className="text-[11px] text-zinc-400 leading-relaxed bg-zinc-900/30 p-4 border border-zinc-900 rounded select-text max-h-[280px] overflow-y-auto">
-                  <p className="text-zinc-500">// Generated Context Vectors Schema ({invoices.length} invoices, {bankTransactions.length} transactions)</p>
-                  <pre className="text-[10px] text-zinc-300 font-mono leading-normal">
-{JSON.stringify({
-  summary: {
-    outstandingBalance: totalOutstanding,
-    overdueItems: overdueInvoicesCount,
-    currencySpread: "EUR, USD, GBP",
-    activeSecurityProtocols: "TLS-AES-256-GCM"
-  },
-  sampleInvoices: invoices.slice(0, 3).map(i => ({
-    id: i.id,
-    client: i.clientName,
-    val: i.amount,
-    status: i.status
-  })),
-  wiresFeedCount: bankTransactions.length
-}, null, 2)}
-                  </pre>
-                </div>
-              </div>
-            </div>
+          {/* Model selection dropdown */}
+          <div className="space-y-2">
+            <label className="block text-[10px] font-mono text-zinc-400 uppercase font-bold">Artificial Intelligence Model</label>
+            <select
+              value={selectedModel}
+              onChange={(e) => setSelectedModel(e.target.value)}
+              className="w-full text-xs font-mono p-2.5 bg-zinc-900 border border-zinc-800 rounded text-zinc-300 focus:border-blue-500 outline-none cursor-pointer"
+            >
+              <option value="gemini-3.5-flash" className="bg-zinc-950">Standard AI (Recommended)</option>
+              <option value="gemini-3.1-pro-preview" className="bg-zinc-950">Premium AI (Requires Pro License)</option>
+              <option value="gemini-3.1-flash-lite" className="bg-zinc-950">Economy AI (Fast & Lightweight)</option>
+            </select>
+            <p className="text-[10px] text-zinc-500 leading-relaxed font-sans">
+              *Premium models are best for complex analytical queries. Standard works instantly out of the box.
+            </p>
           </div>
-        )}
 
-        {/* VIEW D: LIQUIDITY RISK DIAGNOSTICS */}
-        {activeSubTab === 'diagnostics' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch animate-float-in" id="ai-liquidity-diagnostics">
-            
-            {/* Risk Parameters audit */}
-            <div className="lg:col-span-7 bg-zinc-950 border border-zinc-900 rounded-xl p-5 space-y-5">
-              <div className="border-b border-zinc-900 pb-3">
-                <h4 className="text-xs uppercase font-mono text-white font-bold tracking-widest">Semantic Cashflow Risk Audit</h4>
-                <p className="text-[10px] text-zinc-500 font-mono">FLOWT sovereign model assessments</p>
-              </div>
+          <hr className="border-zinc-900" />
 
-              <div className="space-y-3">
-                {invoices.length === 0 ? (
-                  <p className="text-xs text-zinc-500 font-light">No ledger records detected to establish risk index profiles.</p>
-                ) : (
-                  invoices.map((inv) => {
-                    const isHighRisk = inv.status === 'Overdue' && inv.amount > 1000;
-                    const isMedRisk = inv.status === 'Overdue' && inv.amount <= 1000;
-                    
-                    let riskText = "NOMINAL RISK";
-                    let riskColor = "text-emerald-400 bg-emerald-950/40 border-emerald-900";
-                    let riskDesc = "Payments are completely healthy or within regular grace period metrics.";
-                    
-                    if (isHighRisk) {
-                      riskText = "HIGH LIQUIDITY PENALTY";
-                      riskColor = "text-rose-400 bg-rose-950/40 border-rose-900";
-                      riskDesc = "Overdue high balance invoice threatens continuous capital sweeps. Active collection triggered.";
-                    } else if (isMedRisk) {
-                      riskText = "MODERATE DELAY";
-                      riskColor = "text-amber-400 bg-amber-950/40 border-amber-900";
-                      riskDesc = "Outstanding balance overdue. Needs cordial automated notification.";
-                    }
-
-                    return (
-                      <div key={inv.id} className="p-4 bg-zinc-950/60 border border-zinc-900 hover:border-zinc-800 transition-all rounded-lg flex items-center justify-between gap-4">
-                        <div className="space-y-1">
-                          <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">{inv.id} / {inv.clientName}</span>
-                          <p className="text-xs text-zinc-300 font-light">Amount: <span className="font-semibold text-white">${inv.amount.toLocaleString()}</span></p>
-                          <p className="text-[10px] text-zinc-400 leading-normal max-w-md font-sans font-light">{riskDesc}</p>
-                        </div>
-                        <div className={`px-2.5 py-1 text-[9px] font-mono border rounded uppercase font-bold shrink-0 ${riskColor}`}>
-                          {riskText}
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
+          {/* Tone Creativity Slider */}
+          <div className="space-y-2">
+            <div className="flex justify-between items-center text-[10px] font-mono">
+              <span className="text-zinc-400 uppercase font-bold flex items-center gap-1">
+                <Flame className="w-3.5 h-3.5 text-blue-500" /> Tone Creativity (Temperature)
+              </span>
+              <span className="text-white font-bold">{temperature.toFixed(2)}</span>
             </div>
-
-            {/* Quick Diagnostic Insights scorecard */}
-            <div className="lg:col-span-5 bg-zinc-950 border border-zinc-900 rounded-xl p-5 flex flex-col justify-between space-y-6">
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 border-b border-zinc-900 pb-3">
-                  <Activity className="w-4 h-4 text-violet-400" />
-                  <div>
-                    <h4 className="text-[10px] font-mono font-bold tracking-widest text-zinc-400 uppercase">Preventative Sweep Actions</h4>
-                    <p className="text-[8.5px] text-zinc-550 font-mono">Immediate platform remedies</p>
-                  </div>
-                </div>
-
-                <div className="space-y-4 text-xs font-light">
-                  <div className="p-3.5 bg-zinc-900/40 border border-zinc-900 rounded-lg space-y-1.5">
-                    <h5 className="font-mono text-[10px] uppercase font-bold text-zinc-300 flex items-center gap-1.5">
-                      <Check className="w-3.5 h-3.5 text-violet-400" /> Remittance matching sweeps
-                    </h5>
-                    <p className="text-[11px] text-zinc-400 leading-relaxed font-sans">
-                      Verify matches between unallocated wire transfers and unpaid records before releasing reminder alerts.
-                    </p>
-                  </div>
-
-                  <div className="p-3.5 bg-zinc-900/40 border border-zinc-900 rounded-lg space-y-1.5">
-                    <h5 className="font-mono text-[10px] uppercase font-bold text-zinc-300 flex items-center gap-1.5">
-                      <Check className="w-3.5 h-3.5 text-violet-400" /> Define Custom Grace Filters
-                    </h5>
-                    <p className="text-[11px] text-zinc-400 leading-relaxed font-sans">
-                      Adjust your account reminders parameters to wait for wire clearances during banking holidays.
-                    </p>
-                  </div>
-
-                  <div className="p-3.5 bg-violet-950/10 border border-violet-900/20 rounded-lg space-y-1">
-                    <span className="text-[8px] font-mono text-violet-400 uppercase font-black tracking-widest">Sovereign Recommendation</span>
-                    <p className="text-[10px] text-zinc-400 font-mono select-none leading-relaxed">
-                      "Execute automatic sweep of municipal cords within the credit margin limits to isolate corporate deficits."
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Secure sandbox protocol credit */}
-              <div className="p-3 bg-zinc-950 border border-zinc-900 rounded flex justify-center items-center gap-2 text-[9px] font-mono text-zinc-500 uppercase tracking-widest leading-none">
-                <ShieldCheck className="w-4 h-4 text-zinc-400" /> Verified Cryptographic Layer
-              </div>
+            <input
+              type="range"
+              min="0.0"
+              max="1.2"
+              step="0.05"
+              value={temperature}
+              onChange={(e) => setTemperature(parseFloat(e.target.value))}
+              className="w-full h-1 bg-zinc-800 rounded-lg accent-blue-500 cursor-pointer"
+            />
+            <div className="flex justify-between text-[9px] text-zinc-500 font-mono">
+              <span>Professional</span>
+              <span>Balanced</span>
+              <span>Casual</span>
             </div>
-
+            <p className="text-[10px] text-zinc-500 font-sans leading-normal">
+              *Lower levels make responses more factual. Higher levels produce more creative and friendly emails.
+            </p>
           </div>
-        )}
+
+        </div>
 
       </div>
 
